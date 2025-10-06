@@ -32,17 +32,22 @@ function App() {
       setLoading(true);
       setError(null);
       
-      // Try to fetch from API, but use fallback data if it fails
+      // First try to get REAL MRMS data from the API
       try {
         const response = await fetch("http://localhost:3001/api/radar");
         if (response.ok) {
           const data = await response.json();
+          console.log('✅ Got REAL MRMS data:', {
+            points: data.data?.points?.length,
+            dataSource: data.data?.metadata?.dataSource,
+            sampleValues: data.data?.points?.slice(0, 5)?.map(p => p.value)
+          });
           setRadarData(data);
           setLastUpdate(new Date());
           return;
         }
       } catch (apiError) {
-        console.warn('API unavailable, using test data:', apiError);
+        console.warn('⚠️ MRMS API unavailable, using test data:', apiError.message);
       }
       
       // Fallback: Generate test data with LOTS of colored dots

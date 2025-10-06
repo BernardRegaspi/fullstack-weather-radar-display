@@ -221,8 +221,12 @@ function parseDataSection(section, dataRep, gridDef) {
       // PNG compressed data - simplified approach
       console.log('🖼️ Processing PNG compressed data...');
       
-      // For PNG template, we need to treat the raw values differently
-      // MRMS uses this for efficient compression but the values need special handling
+      // PNG template 41 - MRMS uses this for compression
+      console.log('🖼️ Processing PNG compressed MRMS data...');
+      console.log('Reference Value:', dataRep.referenceValue);
+      console.log('Binary Scale Factor:', dataRep.binaryScaleFactor);
+      console.log('Decimal Scale Factor:', dataRep.decimalScaleFactor);
+      
       for (let i = 0; i < totalPoints && i * 2 < dataBuffer.length - 1; i++) {
         const rawValue = dataBuffer.readUInt16BE(i * 2);
         
@@ -230,10 +234,23 @@ function parseDataSection(section, dataRep, gridDef) {
         if (rawValue === 0 || rawValue === 65535) {
           values[i] = null;
         } else {
-          // For MRMS RALA data, apply empirical scaling
-          // Values typically need to be scaled down significantly
-          const scaledValue = (rawValue - 32768) / 655.36; // Convert to approximate dBZ
-          values[i] = Math.max(-30, Math.min(80, scaledValue)); // Clamp to reasonable dBZ range
+          // Apply GRIB2 standard scaling for PNG template
+          const referenceValue = dataRep.referenceValue || 0;
+          const binaryScaleFactor = dataRep.binaryScaleFactor || 0;
+          const decimalScaleFactor = dataRep.decimalScaleFactor || 0;
+          
+          // Standard GRIB2 formula: (R + X * 2^E) / 10^D
+          const binaryScale = Math.pow(2, binaryScaleFactor);
+          const decimalScale = Math.pow(10, decimalScaleFactor);
+          
+          const scaledValue = (referenceValue + rawValue * binaryScale) / decimalScale;
+          
+          // MRMS reflectivity values are typically in the range -30 to 80 dBZ
+          if (scaledValue >= -30 && scaledValue <= 80) {
+            values[i] = Math.round(scaledValue * 10) / 10; // Round to 1 decimal
+          } else {
+            values[i] = null; // Out of reasonable range
+          }
         }
       }
     } else if (dataRep.bitsPerValue === 16) {
