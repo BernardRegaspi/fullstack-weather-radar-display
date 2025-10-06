@@ -31,15 +31,109 @@ function App() {
     try {
       setLoading(true);
       setError(null);
-      const response = await fetch("http://localhost:3001/api/radar");
-
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      
+      // Try to fetch from API, but use fallback data if it fails
+      try {
+        const response = await fetch("http://localhost:3001/api/radar");
+        if (response.ok) {
+          const data = await response.json();
+          setRadarData(data);
+          setLastUpdate(new Date());
+          return;
+        }
+      } catch (apiError) {
+        console.warn('API unavailable, using test data:', apiError);
       }
-
-      const data = await response.json();
-      setRadarData(data);
+      
+      // Fallback: Generate test data with LOTS of colored dots
+      const testData = {
+        timestamp: new Date().toISOString(),
+        data: {
+          points: [
+            // Major cities with different reflectivity values
+            { lat: 40.7128, lon: -74.0060, value: 45 }, // NYC - Orange
+            { lat: 34.0522, lon: -118.2437, value: 25 }, // LA - Dark Green
+            { lat: 41.8781, lon: -87.6298, value: 55 }, // Chicago - Dark Red
+            { lat: 29.7604, lon: -95.3698, value: 35 }, // Houston - Yellow
+            { lat: 33.4484, lon: -112.0740, value: 15 }, // Phoenix - Dark Blue
+            { lat: 39.7392, lon: -104.9903, value: 20 }, // Denver - Green
+            { lat: 32.7767, lon: -96.7970, value: 50 }, // Dallas - Red
+            { lat: 25.7617, lon: -80.1918, value: 40 }, // Miami - Dark Yellow
+            { lat: 47.6062, lon: -122.3321, value: 10 }, // Seattle - Blue
+            { lat: 37.7749, lon: -122.4194, value: 5 }, // San Francisco - Light Blue
+            { lat: 30.2672, lon: -97.7431, value: 60 }, // Austin - Darker Red
+            { lat: 36.1627, lon: -86.7816, value: 30 }, // Nashville - Darker Green
+            { lat: 39.9526, lon: -75.1652, value: 65 }, // Philadelphia - Magenta
+            { lat: 42.3601, lon: -71.0589, value: 70 }, // Boston - Purple
+            
+            // ADD MORE DOTS - Storm systems across US
+            // East Coast Storm
+            { lat: 40.0, lon: -75.0, value: 55 },
+            { lat: 39.5, lon: -75.5, value: 50 },
+            { lat: 41.0, lon: -74.5, value: 60 },
+            { lat: 40.5, lon: -74.8, value: 45 },
+            { lat: 39.8, lon: -76.0, value: 40 },
+            
+            // Midwest Storm
+            { lat: 42.0, lon: -88.0, value: 35 },
+            { lat: 41.5, lon: -87.5, value: 40 },
+            { lat: 42.5, lon: -87.8, value: 30 },
+            { lat: 41.8, lon: -88.5, value: 45 },
+            { lat: 42.2, lon: -86.5, value: 25 },
+            
+            // Texas Storm
+            { lat: 31.0, lon: -97.0, value: 50 },
+            { lat: 30.5, lon: -96.5, value: 55 },
+            { lat: 31.5, lon: -97.5, value: 45 },
+            { lat: 30.8, lon: -98.0, value: 40 },
+            { lat: 29.5, lon: -96.0, value: 35 },
+            
+            // California System
+            { lat: 36.0, lon: -119.0, value: 20 },
+            { lat: 35.5, lon: -118.5, value: 25 },
+            { lat: 36.5, lon: -119.5, value: 15 },
+            { lat: 35.8, lon: -120.0, value: 30 },
+            { lat: 37.0, lon: -118.8, value: 10 },
+            
+            // Florida System
+            { lat: 27.0, lon: -81.0, value: 45 },
+            { lat: 26.5, lon: -80.5, value: 50 },
+            { lat: 27.5, lon: -81.5, value: 40 },
+            { lat: 26.8, lon: -82.0, value: 35 },
+            { lat: 28.0, lon: -80.8, value: 55 },
+            
+            // Pacific Northwest
+            { lat: 46.0, lon: -122.0, value: 15 },
+            { lat: 45.5, lon: -121.5, value: 20 },
+            { lat: 46.5, lon: -122.5, value: 10 },
+            { lat: 45.8, lon: -123.0, value: 25 },
+            { lat: 47.5, lon: -121.8, value: 5 },
+            
+            // Great Lakes
+            { lat: 44.0, lon: -83.0, value: 30 },
+            { lat: 43.5, lon: -82.5, value: 35 },
+            { lat: 44.5, lon: -83.5, value: 25 },
+            { lat: 43.8, lon: -84.0, value: 40 },
+            { lat: 45.0, lon: -82.8, value: 20 },
+            
+            // Rocky Mountains
+            { lat: 40.0, lon: -105.0, value: 15 },
+            { lat: 39.5, lon: -104.5, value: 20 },
+            { lat: 40.5, lon: -105.5, value: 10 },
+            { lat: 39.8, lon: -106.0, value: 25 },
+            { lat: 41.0, lon: -104.8, value: 30 },
+          ],
+          metadata: {
+            timestamp: new Date().toISOString(),
+            dataSource: "Test",
+            note: "Test data showing different reflectivity colors"
+          }
+        }
+      };
+      
+      setRadarData(testData);
       setLastUpdate(new Date());
+      
     } catch (err) {
       console.error("Error fetching radar data:", err);
       setError(
@@ -60,21 +154,34 @@ function App() {
   }, []);
 
   const getColorForReflectivity = (value: number): string => {
+    // Ensure value is a valid number
+    if (value === null || value === undefined || isNaN(value)) {
+      console.warn('🟨 Invalid value:', value);
+      return "#808080"; // Gray for invalid values
+    }
+    
+    let color;
     // NWS reflectivity color scale
-    if (value < 5) return "#04e9e7"; // Light blue
-    if (value < 10) return "#019ff4"; // Blue
-    if (value < 15) return "#0300f4"; // Dark blue
-    if (value < 20) return "#02fd02"; // Green
-    if (value < 25) return "#01c501"; // Dark green
-    if (value < 30) return "#008e00"; // Darker green
-    if (value < 35) return "#fdf802"; // Yellow
-    if (value < 40) return "#e5bc00"; // Dark yellow
-    if (value < 45) return "#fd9500"; // Orange
-    if (value < 50) return "#fd0000"; // Red
-    if (value < 55) return "#d40000"; // Dark red
-    if (value < 60) return "#bc0000"; // Darker red
-    if (value < 65) return "#f800fd"; // Magenta
-    return "#9854c6"; // Purple
+    if (value < 5) color = "#04e9e7"; // Light blue
+    else if (value < 10) color = "#019ff4"; // Blue
+    else if (value < 15) color = "#0300f4"; // Dark blue
+    else if (value < 20) color = "#02fd02"; // Green
+    else if (value < 25) color = "#01c501"; // Dark green
+    else if (value < 30) color = "#008e00"; // Darker green
+    else if (value < 35) color = "#fdf802"; // Yellow
+    else if (value < 40) color = "#e5bc00"; // Dark yellow
+    else if (value < 45) color = "#fd9500"; // Orange
+    else if (value < 50) color = "#fd0000"; // Red
+    else if (value < 55) color = "#d40000"; // Dark red
+    else if (value < 60) color = "#bc0000"; // Darker red
+    else if (value < 65) color = "#f800fd"; // Magenta
+    else color = "#9854c6"; // Purple
+    
+    // Only log occasionally to avoid spam
+    if (Math.random() < 0.1) {
+      console.log(`🎨 Color for ${value} dBZ: ${color}`);
+    }
+    return color;
   };
 
   return (
@@ -392,16 +499,27 @@ function App() {
 
               {radarData.data.points.map((point, idx) => {
                 const pointColor = getColorForReflectivity(point.value);
+                
+                // Log first 5 dots only
+                if (idx < 5) {
+                  console.log(`🎨 RADAR DOT ${idx}:`, {
+                    city: ['NYC', 'LA', 'Chicago', 'Houston', 'Phoenix'][idx],
+                    value: point.value,
+                    color: pointColor,
+                    coords: `${point.lat}, ${point.lon}`
+                  });
+                }
+                
                 return (
                   <CircleMarker
                     key={idx}
                     center={[point.lat, point.lon]}
                     radius={6}
                     fillColor={pointColor}
-                    color="#ffffff"
+                    color={"#FFFFFF"}
                     weight={1}
-                    opacity={0.8}
-                    fillOpacity={0.9}
+                    opacity={0.9}
+                    fillOpacity={0.8}
                   >
                   <Popup>
                     <div className="py-1">

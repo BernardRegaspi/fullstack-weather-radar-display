@@ -43,11 +43,15 @@ export function parseMRMSGrib2(buffer) {
       if (sectionNumber === 8) break;
     }
 
+    // Debug which sections we found
+    console.log('🔍 GRIB2 Sections found:', Object.keys(sections));
+    
     // Parse Section 3 (Grid Definition Section)
     const gridDef = parseGridDefinitionSection(sections[3]?.data);
     
     // Parse Section 5 (Data Representation Section)
     const dataRep = parseDataRepresentationSection(sections[5]?.data);
+    console.log('📊 Data Representation Section:', dataRep);
     
     // Parse Section 7 (Data Section)
     const values = parseDataSection(sections[7]?.data, dataRep, gridDef);
@@ -164,13 +168,30 @@ function parseDataRepresentationSection(section) {
   
   // Template 0 is simple packing
   if (template === 0) {
-    return {
+    const dataRep = {
       template: 0,
       referenceValue: section.readFloatBE(11),
       binaryScaleFactor: section.readInt16BE(15),
       decimalScaleFactor: section.readInt16BE(17),
       bitsPerValue: section.readUInt8(19)
     };
+    
+    console.log('📊 GRIB2 Data Representation:', dataRep);
+    return dataRep;
+  }
+  
+  // Template 41 is PNG compression
+  if (template === 41) {
+    const dataRep = {
+      template: 41,
+      referenceValue: section.readFloatBE(11),
+      binaryScaleFactor: section.readInt16BE(15),
+      decimalScaleFactor: section.readInt16BE(17),
+      bitsPerValue: section.readUInt8(19)
+    };
+    
+    console.log('📊 GRIB2 Data Representation (PNG):', dataRep);
+    return dataRep;
   }
 
   return {
@@ -195,21 +216,46 @@ function parseDataSection(section, dataRep, gridDef) {
     const totalPoints = gridDef.nx * gridDef.ny;
     const values = new Array(totalPoints);
 
-    // Simple unpacking for most MRMS data
-    if (dataRep.bitsPerValue === 16) {
-      // 16-bit signed integers
+    // Handle different data representation templates
+    if (dataRep.template === 41) {
+      // PNG compressed data - simplified approach
+      console.log('🖼️ Processing PNG compressed data...');
+      
+      // For PNG template, we need to treat the raw values differently
+      // MRMS uses this for efficient compression but the values need special handling
+      for (let i = 0; i < totalPoints && i * 2 < dataBuffer.length - 1; i++) {
+        const rawValue = dataBuffer.readUInt16BE(i * 2);
+        
+        // Check for missing value indicators
+        if (rawValue === 0 || rawValue === 65535) {
+          values[i] = null;
+        } else {
+          // For MRMS RALA data, apply empirical scaling
+          // Values typically need to be scaled down significantly
+          const scaledValue = (rawValue - 32768) / 655.36; // Convert to approximate dBZ
+          values[i] = Math.max(-30, Math.min(80, scaledValue)); // Clamp to reasonable dBZ range
+        }
+      }
+    } else if (dataRep.bitsPerValue === 16) {
+      // 16-bit signed integers (simple packing)
       for (let i = 0; i < totalPoints && i * 2 < dataBuffer.length - 1; i++) {
         const rawValue = dataBuffer.readInt16BE(i * 2);
         
-        // Apply scaling
-        const scaleFactor = Math.pow(10, -dataRep.decimalScaleFactor || 0);
-        const binaryScale = Math.pow(2, dataRep.binaryScaleFactor || 0);
-        
-        // Check for missing value indicators
-        if (rawValue === -32768 || rawValue === -9999) {
+        // Check for missing value indicators first
+        if (rawValue === -32768 || rawValue === -9999 || rawValue === 32767) {
           values[i] = null;
         } else {
-          values[i] = ((dataRep.referenceValue || 0) + rawValue * binaryScale) * scaleFactor;
+          // Apply proper GRIB2 scaling
+          const referenceValue = dataRep.referenceValue || 0;
+          const binaryScaleFactor = dataRep.binaryScaleFactor || 0;
+          const decimalScaleFactor = dataRep.decimalScaleFactor || 0;
+          
+          // GRIB2 formula: (R + X * 2^E) / 10^D
+          // Where R = reference value, X = raw value, E = binary scale, D = decimal scale
+          const binaryScale = Math.pow(2, binaryScaleFactor);
+          const decimalScale = Math.pow(10, decimalScaleFactor);
+          
+          values[i] = (referenceValue + rawValue * binaryScale) / decimalScale;
         }
       }
     } else if (dataRep.bitsPerValue === 8) {

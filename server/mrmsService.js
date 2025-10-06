@@ -8,7 +8,7 @@ const gunzip = promisify(zlib.gunzip);
 
 // MRMS RALA product URL - this is the Reflectivity at Lowest Altitude
 const MRMS_BASE_URL =
-  "https://mrms.ncep.noaa.gov/data/2D/ReflectivityAtLowestAltitude/";
+  // "https://mrms.ncep.noaa.gov/data/2D/ReflectivityAtLowestAltitude/";
 
 /**
  * Fetches the latest available MRMS RALA GRIB2 file
@@ -95,7 +95,12 @@ export async function parseGRIB2Data(gribData) {
         // Only include points with valid reflectivity data (typically > -30 dBZ)
         if (value !== null && value !== undefined && value > -30) {
           const lat = la1 / 1e6 - (i * dy) / 1e6;
-          const lon = lo1 / 1e6 + (j * dx) / 1e6;
+          let lon = lo1 / 1e6 + (j * dx) / 1e6;
+          
+          // Convert longitude from 0-360 system to -180/+180 system
+          if (lon > 180) {
+            lon = lon - 360;
+          }
 
           sampledData.push({
             lat,
