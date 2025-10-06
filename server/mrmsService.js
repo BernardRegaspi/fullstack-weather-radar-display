@@ -128,16 +128,23 @@ export async function parseGRIB2Data(gribData) {
       },
     };
   } catch (error) {
-    // Log the specific error type
+    // Log the specific error type with full details
     const errorType = error.message || error.toString();
     console.error("\n⚠️  GRIB2 Parsing Error:");
     console.error("   Type:", errorType);
-    console.error("   Details:", error.stack ? error.stack.split('\n')[0] : 'N/A');
+    console.error("   Stack:", error.stack || 'N/A');
+    console.error("   GRIB2 Data Length:", gribData ? gribData.length : 'undefined');
     
-    console.log("\n→ Falling back to dynamic simulated data...\n");
+    // Log first 100 bytes of GRIB2 data for debugging
+    if (gribData && gribData.length > 0) {
+      console.error("   First 16 bytes (hex):", gribData.slice(0, 16).toString('hex'));
+      console.error("   First 16 bytes (ascii):", gribData.slice(0, 16).toString('ascii'));
+    }
+    
+    console.log("\n→ GRIB2 parsing failed, will use fallback data if needed...\n");
 
-    // Fall back to generating realistic sample data for demonstration
-    return generateDemoRadarData();
+    // Re-throw the error to let the main server handle fallback logic
+    throw new Error(`GRIB2 parsing failed: ${errorType}`);
   }
 }
 
@@ -146,7 +153,7 @@ export async function parseGRIB2Data(gribData) {
  * This simulates real weather patterns that evolve over time
  * @returns {Object} Dynamic radar data with coordinates and values
  */
-function generateDemoRadarData() {
+export function generateDemoRadarData() {
   console.log("📊 Generating dynamic radar data...");
   const sampledData = [];
   const now = Date.now();

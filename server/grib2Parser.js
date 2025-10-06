@@ -3,7 +3,10 @@
  * 
  * This parser handles MRMS GRIB2 files that use unsupported product definition templates.
  * It extracts grid definitions and data values by directly reading GRIB2 sections.
+ * Supports PNG compression (template 41) commonly used by MRMS.
  */
+
+import { PNG } from 'pngjs';
 
 /**
  * Parses MRMS GRIB2 data by extracting grid and data information
@@ -12,24 +15,46 @@
  */
 export function parseMRMSGrib2(buffer) {
   try {
+    console.log('📡 Starting GRIB2 parsing...');
+    console.log(`   Buffer length: ${buffer.length} bytes`);
+    
     // Verify GRIB2 header
     const header = buffer.toString('ascii', 0, 4);
     if (header !== 'GRIB') {
-      throw new Error('Not a valid GRIB2 file');
+      throw new Error(`Invalid GRIB2 header: expected 'GRIB', got '${header}'`);
+    }
+    
+    // Get GRIB edition from byte 7
+    const edition = buffer.readUInt8(7);
+    console.log(`   GRIB edition: ${edition}`);
+    
+    if (edition !== 2) {
+      throw new Error(`Unsupported GRIB edition: ${edition}`);
     }
 
     // Get discipline from byte 6
     const discipline = buffer.readUInt8(6);
+    console.log(`   Discipline: ${discipline}`);
+    
+    // Get total message length from bytes 8-15
+    const messageLength = buffer.readBigUInt64BE(8);
+    console.log(`   Message length: ${messageLength}`);
     
     // Find sections
     let offset = 16; // Skip indicator section (16 bytes)
     const sections = {};
+    let sectionCount = 0;
     
-    while (offset < buffer.length - 4) {
+    while (offset < buffer.length - 4 && sectionCount < 20) { // Safety limit
       const sectionLength = buffer.readUInt32BE(offset);
       const sectionNumber = buffer.readUInt8(offset + 4);
       
-      if (sectionLength === 0 || sectionLength > buffer.length) break;
+      console.log(`   Section ${sectionNumber}: length ${sectionLength} at offset ${offset}`);
+      
+      if (sectionLength === 0 || sectionLength > buffer.length || offset + sectionLength > buffer.length) {
+        console.warn(`   Invalid section length ${sectionLength}, breaking`);
+        break;
+      }
       
       sections[sectionNumber] = {
         offset: offset,
@@ -38,33 +63,50 @@ export function parseMRMSGrib2(buffer) {
       };
       
       offset += sectionLength;
+      sectionCount++;
       
       // Section 8 is the end section
-      if (sectionNumber === 8) break;
+      if (sectionNumber === 8) {
+        console.log('   Found end section, stopping');
+        break;
+      }
     }
 
     // Debug which sections we found
-    console.log('🔍 GRIB2 Sections found:', Object.keys(sections));
+    console.log('🔍 GRIB2 Sections found:', Object.keys(sections).map(k => `${k}(${sections[k].length}b)`).join(', '));
+    
+    if (!sections[3]) {
+      throw new Error('Missing Grid Definition Section (3)');
+    }
+    if (!sections[5]) {
+      throw new Error('Missing Data Representation Section (5)');
+    }
+    if (!sections[7]) {
+      throw new Error('Missing Data Section (7)');
+    }
     
     // Parse Section 3 (Grid Definition Section)
-    const gridDef = parseGridDefinitionSection(sections[3]?.data);
+    const gridDef = parseGridDefinitionSection(sections[3].data);
+    console.log('🗺️ Grid Definition:', { nx: gridDef.nx, ny: gridDef.ny });
     
     // Parse Section 5 (Data Representation Section)
-    const dataRep = parseDataRepresentationSection(sections[5]?.data);
-    console.log('📊 Data Representation Section:', dataRep);
+    const dataRep = parseDataRepresentationSection(sections[5].data);
+    console.log('📊 Data Representation:', dataRep);
     
     // Parse Section 7 (Data Section)
-    const values = parseDataSection(sections[7]?.data, dataRep, gridDef);
+    const values = parseDataSection(sections[7].data, dataRep, gridDef);
+    console.log(`📋 Parsed ${values.length} data values`);
 
     return {
       discipline,
       gridDefinition: gridDef,
       values: values,
-      parameterCategory: sections[4] ? buffer.readUInt8(sections[4].offset + 9) : 0,
-      parameterNumber: sections[4] ? buffer.readUInt8(sections[4].offset + 10) : 0,
+      parameterCategory: sections[4] ? sections[4].data.readUInt8(9) : 0,
+      parameterNumber: sections[4] ? sections[4].data.readUInt8(10) : 0,
     };
   } catch (error) {
-    console.error('Error in custom GRIB2 parser:', error.message);
+    console.error('❌ Error in custom GRIB2 parser:', error.message);
+    console.error('   Stack:', error.stack);
     throw error;
   }
 }
@@ -210,86 +252,154 @@ function parseDataSection(section, dataRep, gridDef) {
   }
 
   try {
+    console.log(`📋 Parsing data section: ${section.length} bytes`);
     const dataOffset = 5; // Data starts at byte 5
     const dataBuffer = section.slice(dataOffset);
+    console.log(`   Data buffer: ${dataBuffer.length} bytes`);
     
     const totalPoints = gridDef.nx * gridDef.ny;
-    const values = new Array(totalPoints);
+    console.log(`   Expected data points: ${totalPoints}`);
+    const values = new Array(totalPoints).fill(null);
 
     // Handle different data representation templates
     if (dataRep.template === 41) {
-      // PNG compressed data - simplified approach
-      console.log('🖼️ Processing PNG compressed data...');
+      // PNG compressed data - decode PNG first
+      console.log('🖼️ Processing PNG compressed data (template 41)...');
+      console.log(`   Reference: ${dataRep.referenceValue}, Binary Scale: ${dataRep.binaryScaleFactor}, Decimal Scale: ${dataRep.decimalScaleFactor}`);
       
-      // PNG template 41 - MRMS uses this for compression
-      console.log('🖼️ Processing PNG compressed MRMS data...');
-      console.log('Reference Value:', dataRep.referenceValue);
-      console.log('Binary Scale Factor:', dataRep.binaryScaleFactor);
-      console.log('Decimal Scale Factor:', dataRep.decimalScaleFactor);
-      
-      for (let i = 0; i < totalPoints && i * 2 < dataBuffer.length - 1; i++) {
-        const rawValue = dataBuffer.readUInt16BE(i * 2);
+      try {
+        // Decode PNG data
+        const pngData = PNG.sync.read(dataBuffer);
+        console.log(`   PNG dimensions: ${pngData.width}x${pngData.height}`);
         
-        // Check for missing value indicators
-        if (rawValue === 0 || rawValue === 65535) {
-          values[i] = null;
-        } else {
-          // Apply GRIB2 standard scaling for PNG template
-          const referenceValue = dataRep.referenceValue || 0;
-          const binaryScaleFactor = dataRep.binaryScaleFactor || 0;
-          const decimalScaleFactor = dataRep.decimalScaleFactor || 0;
-          
-          // Standard GRIB2 formula: (R + X * 2^E) / 10^D
-          const binaryScale = Math.pow(2, binaryScaleFactor);
-          const decimalScale = Math.pow(10, decimalScaleFactor);
-          
-          const scaledValue = (referenceValue + rawValue * binaryScale) / decimalScale;
-          
-          // MRMS reflectivity values are typically in the range -30 to 80 dBZ
-          if (scaledValue >= -30 && scaledValue <= 80) {
-            values[i] = Math.round(scaledValue * 10) / 10; // Round to 1 decimal
+        const maxPoints = Math.min(totalPoints, pngData.width * pngData.height);
+        console.log(`   Processing ${maxPoints} PNG values`);
+        
+        for (let i = 0; i < maxPoints; i++) {
+          // PNG data is stored as RGBA, but for GRIB2 we usually only use the first component
+          // Each pixel has 4 bytes (RGBA), so we read the red component (or luminance for grayscale)
+          const pixelIndex = i * 4;
+          if (pixelIndex + 1 < pngData.data.length) {
+            const rawValue = (pngData.data[pixelIndex] << 8) | pngData.data[pixelIndex + 1]; // 16-bit value from two 8-bit components
+            
+            // Check for missing value indicators
+            if (rawValue === 0 || rawValue === 65535) {
+              values[i] = null;
+            } else {
+              // Apply GRIB2 scaling
+              const referenceValue = dataRep.referenceValue || 0;
+              const binaryScaleFactor = dataRep.binaryScaleFactor || 0;
+              const decimalScaleFactor = dataRep.decimalScaleFactor || 0;
+              
+              const binaryScale = Math.pow(2, binaryScaleFactor);
+              const decimalScale = Math.pow(10, decimalScaleFactor);
+              
+              const scaledValue = (referenceValue + rawValue * binaryScale) / decimalScale;
+              
+              // MRMS reflectivity is typically -30 to 80 dBZ
+              if (scaledValue >= -50 && scaledValue <= 100) {
+                values[i] = Math.round(scaledValue * 10) / 10;
+              } else {
+                values[i] = null;
+              }
+            }
           } else {
-            values[i] = null; // Out of reasonable range
+            values[i] = null;
           }
         }
+      } catch (pngError) {
+        console.error('🖼️ PNG decompression failed:', pngError.message);
+        throw new Error(`PNG decompression failed: ${pngError.message}`);
       }
-    } else if (dataRep.bitsPerValue === 16) {
-      // 16-bit signed integers (simple packing)
-      for (let i = 0; i < totalPoints && i * 2 < dataBuffer.length - 1; i++) {
-        const rawValue = dataBuffer.readInt16BE(i * 2);
+      
+    } else if (dataRep.template === 0) {
+      // Simple packing (most common)
+      console.log('📦 Processing simple packing (template 0)...');
+      console.log(`   Reference: ${dataRep.referenceValue}, Binary Scale: ${dataRep.binaryScaleFactor}, Decimal Scale: ${dataRep.decimalScaleFactor}, Bits: ${dataRep.bitsPerValue}`);
+      
+      if (dataRep.bitsPerValue === 16) {
+        // 16-bit values
+        const maxPoints = Math.min(totalPoints, Math.floor(dataBuffer.length / 2));
+        console.log(`   Processing ${maxPoints} 16-bit values`);
         
-        // Check for missing value indicators first
-        if (rawValue === -32768 || rawValue === -9999 || rawValue === 32767) {
-          values[i] = null;
-        } else {
-          // Apply proper GRIB2 scaling
-          const referenceValue = dataRep.referenceValue || 0;
-          const binaryScaleFactor = dataRep.binaryScaleFactor || 0;
-          const decimalScaleFactor = dataRep.decimalScaleFactor || 0;
+        for (let i = 0; i < maxPoints; i++) {
+          const rawValue = dataBuffer.readUInt16BE(i * 2);
           
-          // GRIB2 formula: (R + X * 2^E) / 10^D
-          // Where R = reference value, X = raw value, E = binary scale, D = decimal scale
-          const binaryScale = Math.pow(2, binaryScaleFactor);
-          const decimalScale = Math.pow(10, decimalScaleFactor);
-          
-          values[i] = (referenceValue + rawValue * binaryScale) / decimalScale;
+          // Check for missing value indicators
+          if (rawValue === 0 || rawValue === 65535) {
+            values[i] = null;
+          } else {
+            // Apply GRIB2 scaling
+            const referenceValue = dataRep.referenceValue || 0;
+            const binaryScaleFactor = dataRep.binaryScaleFactor || 0;
+            const decimalScaleFactor = dataRep.decimalScaleFactor || 0;
+            
+            const binaryScale = Math.pow(2, binaryScaleFactor);
+            const decimalScale = Math.pow(10, decimalScaleFactor);
+            
+            const scaledValue = (referenceValue + rawValue * binaryScale) / decimalScale;
+            
+            // MRMS reflectivity is typically -30 to 80 dBZ
+            if (scaledValue >= -50 && scaledValue <= 100) {
+              values[i] = Math.round(scaledValue * 10) / 10;
+            } else {
+              values[i] = null;
+            }
+          }
         }
-      }
-    } else if (dataRep.bitsPerValue === 8) {
-      // 8-bit values
-      for (let i = 0; i < totalPoints && i < dataBuffer.length; i++) {
-        const rawValue = dataBuffer.readInt8(i);
-        values[i] = rawValue === -128 ? null : rawValue;
+      } else if (dataRep.bitsPerValue === 8) {
+        // 8-bit values
+        const maxPoints = Math.min(totalPoints, dataBuffer.length);
+        console.log(`   Processing ${maxPoints} 8-bit values`);
+        
+        for (let i = 0; i < maxPoints; i++) {
+          const rawValue = dataBuffer.readUInt8(i);
+          
+          if (rawValue === 0 || rawValue === 255) {
+            values[i] = null;
+          } else {
+            const referenceValue = dataRep.referenceValue || 0;
+            const binaryScaleFactor = dataRep.binaryScaleFactor || 0;
+            const decimalScaleFactor = dataRep.decimalScaleFactor || 0;
+            
+            const binaryScale = Math.pow(2, binaryScaleFactor);
+            const decimalScale = Math.pow(10, decimalScaleFactor);
+            
+            const scaledValue = (referenceValue + rawValue * binaryScale) / decimalScale;
+            
+            if (scaledValue >= -50 && scaledValue <= 100) {
+              values[i] = Math.round(scaledValue * 10) / 10;
+            } else {
+              values[i] = null;
+            }
+          }
+        }
+      } else {
+        throw new Error(`Unsupported bits per value for simple packing: ${dataRep.bitsPerValue}`);
       }
     } else {
-      console.warn(`Unsupported bits per value: ${dataRep.bitsPerValue}`);
-      return [];
+      throw new Error(`Unsupported data representation template: ${dataRep.template}`);
+    }
+
+    const validCount = values.filter(v => v !== null).length;
+    console.log(`   Processed values: ${validCount}/${totalPoints} valid`);
+    
+    // If we have very few valid values, there might be an issue with our parsing
+    if (validCount === 0) {
+      console.warn('⚠️  No valid data points found!');
+      // Log some raw bytes for debugging
+      console.warn('   First 32 bytes of data buffer:');
+      for (let i = 0; i < Math.min(32, dataBuffer.length); i += 16) {
+        const chunk = dataBuffer.slice(i, Math.min(i + 16, dataBuffer.length));
+        console.warn(`   ${i.toString(16).padStart(4, '0')}: ${chunk.toString('hex')} | ${chunk.toString('ascii').replace(/[^\x20-\x7E]/g, '.')}`);
+      }
     }
 
     return values;
   } catch (error) {
-    console.error('Error parsing data section:', error.message);
-    return [];
+    console.error('❌ Error parsing data section:', error.message);
+    console.error('   Stack:', error.stack);
+    throw error;
   }
 }
 
