@@ -40,14 +40,14 @@ function App() {
           console.log('✅ Got REAL MRMS data:', {
             points: data.data?.points?.length,
             dataSource: data.data?.metadata?.dataSource,
-            sampleValues: data.data?.points?.slice(0, 5)?.map(p => p.value)
+            sampleValues: data.data?.points?.slice(0, 5)?.map((p: RadarPoint) => p.value)
           });
           setRadarData(data);
           setLastUpdate(new Date());
           return;
         }
       } catch (apiError) {
-        console.warn('⚠️ MRMS API unavailable, using test data:', apiError.message);
+        console.warn('⚠️ MRMS API unavailable, using test data:', apiError instanceof Error ? apiError.message : String(apiError));
       }
       
       // Fallback: Generate test data with LOTS of colored dots
