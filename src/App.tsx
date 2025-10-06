@@ -34,7 +34,7 @@ function App() {
       
       // First try to get REAL MRMS data from the API
       try {
-        const response = await fetch("http://localhost:3001/api/radar");
+        const response = await fetch("/api/radar");
         if (response.ok) {
           const data = await response.json();
           console.log('✅ Got REAL MRMS data:', {

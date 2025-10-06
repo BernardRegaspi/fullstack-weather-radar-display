@@ -1,0 +1,14 @@
+[build]
+builder = "nixpacks"
+
+[deploy]
+startCommand = "npm run start"
+restartPolicyType = "on_failure"
+restartPolicyMaxRetries = 10
+
+[[services]]
+name = "fullstack-weather-radar"
+
+[services.variables]
+NODE_ENV = "production"
+PORT = "3001"

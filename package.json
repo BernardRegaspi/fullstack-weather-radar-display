@@ -8,8 +8,10 @@
     "server": "node server/index.js",
     "dev:all": "concurrently \"npm run dev\" \"npm run server\"",
     "build": "tsc -b && vite build",
+    "start": "npm run build && npm run server",
+    "start:prod": "concurrently \"npm run preview\" \"npm run server\"",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "vite preview --port 5173 --host"
   },
   "dependencies": {
     "@tailwindcss/vite": "^4.1.14",
