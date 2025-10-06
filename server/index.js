@@ -1,9 +1,13 @@
 import express from "express";
 import cors from "cors";
-import { fetchLatestRALA, parseGRIB2Data, generateDemoRadarData } from "./mrmsService.js";
+import {
+  fetchLatestRALA,
+  parseGRIB2Data,
+  generateDemoRadarData,
+} from "./mrmsService.js";
 
 const app = express();
-const PORT = 3002;
+const PORT = 3001;
 
 app.use(cors());
 app.use(express.json());
@@ -22,27 +26,32 @@ app.get("/api/radar", async (req, res) => {
   } catch (error) {
     console.error("Error fetching radar data:", error.message);
     console.error("Full error:", error.stack || error.toString());
-    
+
     // Since we now support PNG compression, most MRMS data should work
     // Only fall back to demo data if absolutely necessary
-    if (error.message.includes('PNG compression') || error.message.includes('GRIB2 parsing')) {
-      console.log("Attempting to use fallback demo data due to parsing error...");
-      
+    if (
+      error.message.includes("PNG compression") ||
+      error.message.includes("GRIB2 parsing")
+    ) {
+      console.log(
+        "Attempting to use fallback demo data due to parsing error..."
+      );
+
       try {
         const fallbackData = generateDemoRadarData();
-        
+
         res.json({
           timestamp: new Date().toISOString(),
           data: fallbackData,
           warning: "Using simulated data due to parsing error",
-          originalError: error.message
+          originalError: error.message,
         });
       } catch (fallbackError) {
         console.error("Even fallback failed:", fallbackError);
         res.status(500).json({
           error: "Failed to fetch radar data",
           message: error.message,
-          fallbackError: fallbackError.message
+          fallbackError: fallbackError.message,
         });
       }
     } else {
