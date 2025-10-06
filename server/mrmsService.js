@@ -8,7 +8,7 @@ const gunzip = promisify(zlib.gunzip);
 
 // MRMS RALA product URL - this is the Reflectivity at Lowest Altitude
 const MRMS_BASE_URL =
-  // "https://mrms.ncep.noaa.gov/data/2D/ReflectivityAtLowestAltitude/";
+  "https://mrms.ncep.noaa.gov/data/2D/ReflectivityAtLowestAltitude/";
 
 /**
  * Fetches the latest available MRMS RALA GRIB2 file
